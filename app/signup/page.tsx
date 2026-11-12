@@ -6,28 +6,31 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Loader2, ShieldCheck, TrafficCone } from 'lucide-react'
 import { toast } from 'sonner'
-import { signUp, useStore } from '@/lib/mock-store'
+import { signup } from '@/lib/api/auth'
+import { ApiError } from '@/lib/api/client'
+import { useAuthSession } from '@/lib/auth/session'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 export default function SignupPage() {
   const router = useRouter()
-  const { hydrated, currentUserId } = useStore()
-  const [name, setName] = useState('')
+  const { session, hydrated } = useAuthSession()
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    if (hydrated && currentUserId) router.replace('/dashboard')
-  }, [hydrated, currentUserId, router])
+    if (hydrated && session?.accessToken) router.replace('/dashboard')
+  }, [hydrated, session?.accessToken, router])
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (password.length < 6) {
-      toast.error('비밀번호는 6자 이상이어야 합니다.')
+    if (submitting) return
+    if (password.length < 8) {
+      toast.error('비밀번호는 8자 이상이어야 합니다.')
       return
     }
     if (password !== confirm) {
@@ -35,14 +38,14 @@ export default function SignupPage() {
       return
     }
     setSubmitting(true)
-    const res = signUp({ name, email, password })
-    if (!res.ok) {
+    try {
+      await signup({ username, email, password })
+      toast.success('회원가입이 완료되었습니다. 로그인해 주세요.')
+      router.replace('/login')
+    } catch (error) {
+      toast.error(toSignupErrorMessage(error))
       setSubmitting(false)
-      toast.error(res.error ?? '회원가입에 실패했습니다.')
-      return
     }
-    toast.success('회원가입이 완료되었습니다.')
-    router.replace('/dashboard')
   }
 
   return (
@@ -66,13 +69,18 @@ export default function SignupPage() {
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">이름</Label>
+              <Label htmlFor="username">사용자 이름</Label>
               <Input
-                id="name"
+                id="username"
                 required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="홍길동"
+                autoComplete="username"
+                minLength={3}
+                maxLength={30}
+                pattern="^[a-zA-Z0-9_]+$"
+                title="영문, 숫자, 밑줄만 사용할 수 있습니다."
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="hong_gildong"
               />
             </div>
             <div className="space-y-2">
@@ -96,7 +104,7 @@ export default function SignupPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="6자 이상 입력"
+                placeholder="8자 이상 입력"
               />
             </div>
             <div className="space-y-2">
@@ -157,4 +165,18 @@ export default function SignupPage() {
       </div>
     </div>
   )
+}
+
+function toSignupErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const fieldMessages = error.details?.errors
+      ?.map((item) => item.message)
+      .filter(Boolean)
+    if (error.status === 400 && fieldMessages && fieldMessages.length > 0) {
+      return fieldMessages.join(' ')
+    }
+    if (error.message) return error.message
+  }
+  if (error instanceof Error && error.message) return error.message
+  return '회원가입에 실패했습니다.'
 }

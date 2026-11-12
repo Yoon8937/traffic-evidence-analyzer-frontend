@@ -15,6 +15,11 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  clearAuthSession,
+  getJwtUser,
+  useAuthSession,
+} from '@/lib/auth/session'
 import { logOut, useCurrentUser, useStore } from '@/lib/mock-store'
 import { Button } from '@/components/ui/button'
 import {
@@ -40,18 +45,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const { hydrated } = useStore()
+  const auth = useAuthSession()
   const user = useCurrentUser()
+  const tokenUser = getJwtUser(auth.session?.accessToken)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const isAuthenticated = Boolean(auth.session?.accessToken || user)
 
   useEffect(() => {
-    if (hydrated && !user) router.replace('/login')
-  }, [hydrated, user, router])
+    if (hydrated && auth.hydrated && !isAuthenticated) {
+      router.replace('/login')
+    }
+  }, [hydrated, auth.hydrated, isAuthenticated, router])
 
   useEffect(() => {
     setMobileOpen(false)
   }, [pathname])
 
-  if (!hydrated || !user) {
+  if (!hydrated || !auth.hydrated || !isAuthenticated) {
     return (
       <div className="flex min-h-svh items-center justify-center bg-background">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -59,7 +69,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const initials = user.name.slice(0, 2)
+  const displayName = tokenUser?.username || user?.name || '사용자'
+  const displayEmail = tokenUser?.email || user?.email || ''
+  const initials = displayName.slice(0, 2)
 
   const sidebar = (
     <div className="flex h-full flex-col">
@@ -159,7 +171,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </AvatarFallback>
                   </Avatar>
                   <span className="hidden text-sm font-medium sm:inline">
-                    {user.name}
+                    {displayName}
                   </span>
                   <ChevronDown className="size-4 text-muted-foreground" />
                 </Button>
@@ -167,14 +179,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             />
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel className="flex flex-col">
-                <span className="text-sm font-medium">{user.name}</span>
+                <span className="text-sm font-medium">{displayName}</span>
                 <span className="text-xs font-normal text-muted-foreground">
-                  {user.email}
+                  {displayEmail}
                 </span>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => {
+                  clearAuthSession()
                   logOut()
                   router.replace('/login')
                 }}

@@ -6,33 +6,38 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Loader2, ShieldCheck, TrafficCone } from 'lucide-react'
 import { toast } from 'sonner'
-import { logIn, useStore } from '@/lib/mock-store'
+import { login } from '@/lib/api/auth'
+import { saveAuthSession, useAuthSession } from '@/lib/auth/session'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 export default function LoginPage() {
   const router = useRouter()
-  const { hydrated, currentUserId } = useStore()
+  const { session, hydrated } = useAuthSession()
   const [email, setEmail] = useState('demo@traffic.io')
   const [password, setPassword] = useState('demo1234')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    if (hydrated && currentUserId) router.replace('/dashboard')
-  }, [hydrated, currentUserId, router])
+    if (hydrated && session?.accessToken) router.replace('/dashboard')
+  }, [hydrated, session?.accessToken, router])
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (submitting) return
     setSubmitting(true)
-    const res = logIn({ email, password })
-    if (!res.ok) {
+    try {
+      const result = await login({ email, password })
+      saveAuthSession(result.accessToken, result.tokenType)
+      toast.success('로그인되었습니다.')
+      router.replace('/dashboard')
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '로그인에 실패했습니다.'
+      toast.error(message)
       setSubmitting(false)
-      toast.error(res.error ?? '로그인에 실패했습니다.')
-      return
     }
-    toast.success('로그인되었습니다.')
-    router.replace('/dashboard')
   }
 
   return (
