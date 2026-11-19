@@ -30,3 +30,15 @@ export interface ErrorResponse {
   message: string
   errors: FieldErrorDetail[] | null
 }
+
+export interface VideoUploadResponse {
+  videoId: string
+  originalFilename: string
+  fileSize: number
+  contentType: string
+  durationSeconds: number | null
+  width: number | null
+  height: number | null
+  frameRate: number | null
+  createdAt: string
+}

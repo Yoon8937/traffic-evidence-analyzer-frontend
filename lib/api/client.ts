@@ -1,4 +1,4 @@
-import { getAuthorizationHeader } from '@/lib/auth/session'
+import { clearAuthSession, getAuthorizationHeader } from '@/lib/auth/session'
 import type { ErrorResponse } from './types'
 
 const DEFAULT_API_BASE_URL = 'http://localhost:8080'
@@ -67,7 +67,9 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const { auth, ...requestInit } = init
   const headers = new Headers(requestInit.headers)
-  if (requestInit.body && !headers.has('Content-Type')) {
+  const isFormData =
+    typeof FormData !== 'undefined' && requestInit.body instanceof FormData
+  if (requestInit.body && !headers.has('Content-Type') && !isFormData) {
     headers.set('Content-Type', 'application/json')
   }
   if (auth) {
@@ -91,7 +93,11 @@ export async function apiFetch<T>(
   }
 
   if (!response.ok) {
-    throw await readError(response)
+    const error = await readError(response)
+    if (auth && response.status === 401) {
+      clearAuthSession()
+    }
+    throw error
   }
 
   try {

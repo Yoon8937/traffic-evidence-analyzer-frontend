@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
+  CircleCheck,
   FileVideo,
   Loader2,
   MapPin,
@@ -11,7 +12,9 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { createAnalysis } from '@/lib/mock-store'
+import { uploadVideo } from '@/lib/api/videos'
+import { ApiError } from '@/lib/api/client'
+import type { VideoUploadResponse } from '@/lib/api/types'
 import { formatBytes, formatDuration } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -25,52 +28,48 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-interface SelectedFile {
-  name: string
-  size: number
-  duration: number
-}
+const MAX_FILE_SIZE_BYTES = 509_715_200
+const ALLOWED_EXTENSIONS = ['mov', 'mp4']
+const ALLOWED_CONTENT_TYPES = ['video/quicktime', 'video/mp4']
 
 export default function UploadPage() {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
-  const [file, setFile] = useState<SelectedFile | null>(null)
+  const [file, setFile] = useState<File | null>(null)
   const [location, setLocation] = useState('')
   const [cameraId, setCameraId] = useState('')
   const [dragging, setDragging] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [result, setResult] = useState<VideoUploadResponse | null>(null)
 
   function acceptFile(f: File) {
-    if (!f.type.startsWith('video/')) {
-      toast.error('영상 파일만 업로드할 수 있습니다.')
+    const error = validateVideoFile(f)
+    if (error) {
+      toast.error(error)
       return
     }
-    // Simulated duration for a mock pipeline.
-    const duration = Math.floor(8 + Math.random() * 40)
-    setFile({ name: f.name, size: f.size, duration })
+    setResult(null)
+    setFile(f)
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (submitting) return
     if (!file) {
       toast.error('분석할 영상을 선택하세요.')
       return
     }
     setSubmitting(true)
-    const id = createAnalysis({
-      fileName: file.name,
-      fileSizeBytes: file.size,
-      durationSec: file.duration,
-      location: location.trim() || '위치 미지정',
-      cameraId: cameraId.trim() || `CAM-${Math.floor(1000 + Math.random() * 9000)}`,
-    })
-    if (!id) {
+    setResult(null)
+    try {
+      const uploaded = await uploadVideo(file)
+      setResult(uploaded)
+      toast.success('업로드가 완료되었습니다.')
+    } catch (error) {
+      toast.error(toUploadErrorMessage(error))
+    } finally {
       setSubmitting(false)
-      toast.error('분석을 시작할 수 없습니다.')
-      return
     }
-    toast.success('분석을 시작했습니다.')
-    router.push(`/analysis/${id}`)
   }
 
   return (
@@ -87,7 +86,7 @@ export default function UploadPage() {
           <CardHeader>
             <CardTitle>1. 영상 파일</CardTitle>
             <CardDescription>
-              MP4, MOV 등 영상 형식을 지원합니다. (데모 환경)
+              MOV, MP4 형식만 업로드할 수 있습니다.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -126,13 +125,13 @@ export default function UploadPage() {
                     클릭하거나 파일을 여기로 드래그하세요
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    최대 500MB · 단일 영상 파일
+                    최대 약 500MB · MOV, MP4 · 단일 영상 파일
                   </p>
                 </div>
                 <input
                   ref={inputRef}
                   type="file"
-                  accept="video/*"
+                  accept=".mov,.mp4,video/quicktime,video/mp4"
                   className="hidden"
                   onChange={(e) => {
                     const f = e.target.files?.[0]
@@ -149,8 +148,8 @@ export default function UploadPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{file.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {formatBytes(file.size)} · 재생시간 약{' '}
-                    {formatDuration(file.duration)}
+                    {formatBytes(file.size)}
+                    {file.type ? ` · ${file.type}` : ''}
                   </p>
                 </div>
                 <Button
@@ -158,7 +157,11 @@ export default function UploadPage() {
                   variant="ghost"
                   size="icon"
                   aria-label="파일 제거"
-                  onClick={() => setFile(null)}
+                  disabled={submitting}
+                  onClick={() => {
+                    setFile(null)
+                    setResult(null)
+                  }}
                 >
                   <X className="size-4" />
                 </Button>
@@ -204,6 +207,50 @@ export default function UploadPage() {
           </CardContent>
         </Card>
 
+        {result && (
+          <Card className="border-emerald-200 bg-emerald-50/40">
+            <CardContent className="flex flex-col items-start gap-3 py-6">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                  <CircleCheck className="size-5" />
+                </div>
+                <div>
+                  <p className="font-semibold">업로드가 완료되었습니다</p>
+                  <p className="text-sm text-muted-foreground">
+                    영상이 저장되었습니다.
+                  </p>
+                </div>
+              </div>
+              <dl className="w-full space-y-1.5 text-sm">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">videoId</dt>
+                  <dd className="truncate font-mono text-xs">{result.videoId}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">파일명</dt>
+                  <dd className="truncate font-medium">
+                    {result.originalFilename}
+                  </dd>
+                </div>
+                {result.fileSize != null && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">크기</dt>
+                    <dd>{formatBytes(result.fileSize)}</dd>
+                  </div>
+                )}
+                {result.durationSeconds != null && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-muted-foreground">재생시간</dt>
+                    <dd>
+                      {formatDuration(Number(result.durationSeconds))}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="flex justify-end gap-3">
           <Button
             type="button"
@@ -215,10 +262,33 @@ export default function UploadPage() {
           </Button>
           <Button type="submit" size="lg" disabled={submitting || !file}>
             {submitting && <Loader2 className="size-4 animate-spin" />}
-            분석 시작
+            업로드
           </Button>
         </div>
       </form>
     </div>
   )
+}
+
+function validateVideoFile(file: File): string | null {
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  if (!extension || !ALLOWED_EXTENSIONS.includes(extension)) {
+    return '지원하지 않는 파일 형식입니다. MOV, MP4 파일만 업로드할 수 있습니다.'
+  }
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    return '업로드 가능한 최대 파일 크기를 초과했습니다.'
+  }
+  if (file.type) {
+    const normalized = file.type.split(';')[0].trim().toLowerCase()
+    if (!ALLOWED_CONTENT_TYPES.includes(normalized)) {
+      return '지원하지 않는 파일 형식입니다. MOV, MP4 파일만 업로드할 수 있습니다.'
+    }
+  }
+  return null
+}
+
+function toUploadErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.message) return error.message
+  if (error instanceof Error && error.message) return error.message
+  return '영상 업로드에 실패했습니다.'
 }
